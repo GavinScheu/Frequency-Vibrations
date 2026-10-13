@@ -41,7 +41,7 @@ At 100 bits/s, a 100-character message (about 130 bytes with overhead) takes abo
 
 Suggested files: `common.py` (constants and the signatures above), `crypto.py`, `framing.py`, `modem.py` (modulate and demodulate), `send.py`, `receive.py`, `tests/`.
 
-## Person 1: Crypto, framing, key handling
+## Jacob: Crypto, framing, key handling
 
 - [ ] Generate and load the 256-bit pre-shared key
   - Keygen script: `key = os.urandom(32)`, written to `key.bin` (or hex in a text file); restrict permissions with `chmod 600`
@@ -67,7 +67,7 @@ Suggested files: `common.py` (constants and the signatures above), `crypto.py`, 
   - Pipeline: `encrypt`, then `frame`, then `modulate`, then `write_wav` and `play` from Person 2
   - Until Person 2's code lands, stub `modulate` to return silence so the CLI can be tested
 
-## Person 2: Transmitter audio
+## Julia: Transmitter audio
 
 - [ ] Implement `modulate` (FSK)
   - Bits: `bits = np.unpackbits(np.frombuffer(frame, dtype=np.uint8))` (most significant bit first); prepend the preamble bits and the sync byte
