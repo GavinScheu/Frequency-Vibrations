@@ -1,9 +1,10 @@
 import os
+import re
 
 import pytest
 
-from common import DecryptionError, KEY_BYTES, MAX_PLAINTEXT, NONCE_BYTES, TAG_BYTES
-from crypto import decrypt, encrypt, load_key
+from common import DecryptionError, KEY_BYTES, MAX_PLAINTEXT, MIN_BODY, NONCE_BYTES, TAG_BYTES
+from crypto import decrypt, encrypt, key_fingerprint, load_key
 
 
 @pytest.fixture
@@ -87,3 +88,68 @@ def test_load_key_missing(monkeypatch):
     monkeypatch.delenv("FV_KEY_PATH", raising=False)
     with pytest.raises((ValueError, FileNotFoundError)):
         load_key()
+
+
+@pytest.mark.parametrize("text", ["{h}", "{h}\n", "{H}\n", "  {h}  \r\n"])
+def test_load_key_hex(tmp_path, text):
+    k = os.urandom(KEY_BYTES)
+    p = tmp_path / "key.hex"
+    p.write_text(text.format(h=k.hex(), H=k.hex().upper()))
+    assert load_key(str(p)) == k
+
+
+def test_load_key_hex_wrong_length(tmp_path):
+    p = tmp_path / "key.hex"
+    p.write_text(os.urandom(16).hex() + "\n")
+    with pytest.raises(ValueError):
+        load_key(str(p))
+
+
+def test_load_key_huge_file(tmp_path):
+    p = tmp_path / "big"
+    p.write_bytes(b"0" * 10_000)
+    with pytest.raises(ValueError, match="too large"):
+        load_key(str(p))
+
+
+def test_load_key_error_does_not_leak_contents(tmp_path):
+    p = tmp_path / "key.hex"
+    secret = "ab" * 31 + "zz"  # 64 chars, not valid hex
+    p.write_text(secret)
+    with pytest.raises(ValueError) as e:
+        load_key(str(p))
+    assert secret not in str(e.value)
+
+
+def test_load_key_warns_on_loose_permissions(tmp_path, capsys):
+    p = tmp_path / "key.bin"
+    p.write_bytes(os.urandom(KEY_BYTES))
+    p.chmod(0o644)
+    load_key(str(p))
+    assert "chmod 600" in capsys.readouterr().err
+    p.chmod(0o600)
+    load_key(str(p))
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("size", [16, 24])
+def test_short_aes_keys_rejected(size):
+    # AESGCM itself would accept these and silently run AES-128/192
+    with pytest.raises(ValueError):
+        encrypt("hello", os.urandom(size))
+    with pytest.raises(ValueError):
+        decrypt(b"x" * MIN_BODY, os.urandom(size))
+
+
+def test_fingerprint():
+    k = os.urandom(KEY_BYTES)
+    fp = key_fingerprint(k)
+    assert re.fullmatch(r"[0-9a-f]{4}-[0-9a-f]{4}", fp)
+    assert key_fingerprint(k) == fp
+    assert key_fingerprint(os.urandom(KEY_BYTES)) != fp
+    assert k.hex()[:8] not in fp.replace("-", "")
+
+
+def test_oversized_blob_fails(key):
+    with pytest.raises(DecryptionError):
+        decrypt(os.urandom(513), key)
