@@ -11,7 +11,7 @@ import sys
 import numpy as np
 
 from common import SAMPLE_RATE
-from crypto import encrypt, load_key
+from crypto import encrypt, key_fingerprint, load_key
 from framing import frame
 
 try:
@@ -40,13 +40,23 @@ def main() -> int:
     if not args.out and not args.play:
         parser.error("nothing to do: give --out, --play, or both")
 
-    # TODO:
-    #   - key = load_key(args.key)   (turn ValueError into a clean one-line error + exit 1)
-    #   - blob = encrypt(args.message, key)   (same for an oversized message)
-    #   - samples = modulate(frame(blob))
-    #   - write_wav(args.out, samples) if --out; play(samples, args.device) if --play
-    #   - print a short summary: message bytes, frame bytes, audio seconds
-    raise NotImplementedError
+    try:
+        key = load_key(args.key)
+        blob = encrypt(args.message, key)
+    except (OSError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    framed = frame(blob)
+    samples = modulate(framed)
+    print(f"message {len(args.message.encode('utf-8'))} B, frame {len(framed)} B, "
+          f"audio {len(samples) / SAMPLE_RATE:.1f} s, key {key_fingerprint(key)}")
+
+    if args.out:
+        write_wav(args.out, samples)
+    if args.play:
+        play(samples, args.device)
+    return 0
 
 
 if __name__ == "__main__":
