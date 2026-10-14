@@ -1,6 +1,8 @@
 # Pre-shared keys: never commit
 key.bin
+key.hex
 *.key
+*.tmp
 
 # Generated audio
 *.wav
