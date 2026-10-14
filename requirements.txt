@@ -1,5 +1,7 @@
-numpy
-sounddevice
-cryptography
-matplotlib
-pytest
+# Python >= 3.10. Exact pins so every teammate installs the same versions;
+# change them only by team agreement, like common.py.
+numpy==2.5.4
+sounddevice==0.5.6
+cryptography==50.0.2
+matplotlib==3.11.2
+pytest==9.1.1
