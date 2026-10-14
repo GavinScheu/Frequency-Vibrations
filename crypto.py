@@ -28,7 +28,7 @@ def load_key(path: str | None = None) -> bytes:
 
     Accepts a 32-byte binary file or a 64-character hex text file (whitespace
     ignored). Raises ValueError unless the result is exactly KEY_BYTES bytes.
-    Warns on stderr if the file is readable by other users.
+    Warns on stderr if the file is readable by other users or may sync to the cloud.
     """
     path = path or os.environ.get(KEY_ENV_VAR)
     if not path:
@@ -52,7 +52,40 @@ def load_key(path: str | None = None) -> bytes:
 
     if os.name == "posix" and mode & (stat.S_IRWXG | stat.S_IRWXO):
         print(f"warning: {path} is accessible by other users; run: chmod 600 {path}", file=sys.stderr)
+    warn_if_synced(path)
     return key
+
+
+def _under(path: str, folder: str) -> bool:
+    return path == folder or path.startswith(folder + os.sep)
+
+
+def synced_folder(path: str, home: str | None = None) -> str | None:
+    """Name the cloud service `path` may sync to, or None.
+
+    Checks iCloud Drive, macOS CloudStorage (Dropbox, OneDrive, Google Drive),
+    and Desktop/Documents when iCloud "Desktop & Documents" appears to be on.
+    """
+    home = os.path.realpath(home or os.path.expanduser("~"))
+    path = os.path.realpath(path)
+    icloud = os.path.join(home, "Library", "Mobile Documents")
+    if _under(path, icloud):
+        return "iCloud Drive"
+    if _under(path, os.path.join(home, "Library", "CloudStorage")):
+        return "cloud storage"
+    for name in ("Desktop", "Documents"):
+        if (_under(path, os.path.join(home, name))
+                and os.path.isdir(os.path.join(icloud, "com~apple~CloudDocs", name))):
+            return "iCloud Desktop & Documents"
+    return None
+
+
+def warn_if_synced(path: str) -> None:
+    """Print a stderr warning if the key file at `path` may be uploaded to a cloud service."""
+    label = synced_folder(path)
+    if label:
+        print(f"warning: {path} may sync to {label}; keep keys outside synced folders "
+              f"and use --key or ${KEY_ENV_VAR}", file=sys.stderr)
 
 
 def key_fingerprint(key: bytes) -> str:

@@ -4,6 +4,7 @@ import sys
 
 import pytest
 
+import crypto
 import keygen
 from crypto import key_fingerprint, load_key
 
@@ -56,3 +57,14 @@ def test_force_replaces(monkeypatch):
 def test_custom_out(monkeypatch):
     assert run(monkeypatch, "--out", "shared.key") == 0
     assert len(load_key("shared.key")) == 32
+
+
+def test_warns_when_synced(monkeypatch, capsys):
+    monkeypatch.setattr(crypto, "synced_folder", lambda path: "iCloud Drive")
+    assert run(monkeypatch) == 0
+    assert "may sync to iCloud Drive" in capsys.readouterr().err
+
+
+def test_no_sync_warning_in_tmp(monkeypatch, capsys):
+    run(monkeypatch)
+    assert "may sync" not in capsys.readouterr().err

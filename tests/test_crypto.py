@@ -4,7 +4,8 @@ import re
 import pytest
 
 from common import DecryptionError, KEY_BYTES, MAX_PLAINTEXT, MIN_BODY, NONCE_BYTES, TAG_BYTES
-from crypto import decrypt, encrypt, key_fingerprint, load_key
+import crypto
+from crypto import decrypt, encrypt, key_fingerprint, load_key, synced_folder
 
 
 @pytest.fixture
@@ -153,3 +154,47 @@ def test_fingerprint():
 def test_oversized_blob_fails(key):
     with pytest.raises(DecryptionError):
         decrypt(os.urandom(513), key)
+
+
+@pytest.fixture
+def fake_home(tmp_path):
+    home = tmp_path / "home"
+    for d in ("Desktop", "Documents", "Library/CloudStorage/Dropbox"):
+        (home / d).mkdir(parents=True)
+    return home
+
+
+@pytest.mark.parametrize("folder", ["Desktop", "Documents"])
+def test_synced_folder_icloud_desktop_documents(fake_home, folder):
+    (fake_home / "Library/Mobile Documents/com~apple~CloudDocs" / folder).mkdir(parents=True)
+    assert synced_folder(str(fake_home / folder / "key.bin"), str(fake_home)) == "iCloud Desktop & Documents"
+
+
+def test_synced_folder_desktop_without_icloud(fake_home):
+    assert synced_folder(str(fake_home / "Desktop/key.bin"), str(fake_home)) is None
+
+
+def test_synced_folder_icloud_drive(fake_home):
+    p = fake_home / "Library/Mobile Documents/com~apple~CloudDocs/key.bin"
+    assert synced_folder(str(p), str(fake_home)) == "iCloud Drive"
+
+
+def test_synced_folder_cloud_storage(fake_home):
+    p = fake_home / "Library/CloudStorage/Dropbox/key.bin"
+    assert synced_folder(str(p), str(fake_home)) == "cloud storage"
+
+
+def test_synced_folder_outside_home(fake_home, tmp_path):
+    assert synced_folder(str(tmp_path / "key.bin"), str(fake_home)) is None
+    # A sibling whose name only starts with "Desktop" is not inside it
+    (fake_home / "Library/Mobile Documents/com~apple~CloudDocs/Desktop").mkdir(parents=True)
+    assert synced_folder(str(fake_home / "Desktop2/key.bin"), str(fake_home)) is None
+
+
+def test_load_key_warns_when_synced(tmp_path, monkeypatch, capsys):
+    p = tmp_path / "key.bin"
+    p.write_bytes(os.urandom(KEY_BYTES))
+    p.chmod(0o600)
+    monkeypatch.setattr(crypto, "synced_folder", lambda path: "iCloud Drive")
+    load_key(str(p))
+    assert "may sync to iCloud Drive" in capsys.readouterr().err

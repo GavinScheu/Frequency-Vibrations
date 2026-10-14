@@ -11,7 +11,7 @@ import os
 import sys
 
 from common import KEY_BYTES
-from crypto import key_fingerprint
+from crypto import key_fingerprint, warn_if_synced
 
 
 def write_private(path: str, data: bytes, force: bool) -> None:
@@ -47,6 +47,7 @@ def main() -> int:
     print(f"wrote {'hex' if args.hex else 'binary'} key to {out} (mode 600)")
     print(f"fingerprint: {key_fingerprint(key)}  (check it matches on the other computer)")
     print("copy it by USB stick; never send it over audio or chat, and never commit it")
+    warn_if_synced(out)
     return 0
 
 
