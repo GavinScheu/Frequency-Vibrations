@@ -1,0 +1,5 @@
+numpy
+sounddevice
+cryptography
+matplotlib
+pytest

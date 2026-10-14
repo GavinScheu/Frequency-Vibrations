@@ -1,0 +1,11 @@
+# Pre-shared keys: never commit
+key.bin
+*.key
+
+# Generated audio
+*.wav
+!reference.wav
+
+.venv/
+__pycache__/
+.pytest_cache/
