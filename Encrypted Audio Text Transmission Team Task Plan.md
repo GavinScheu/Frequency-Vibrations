@@ -188,6 +188,18 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
   - Install: `pip install -r requirements.txt`
   - Key setup, run commands for sender and receiver, and the agreed constants
   - Troubleshooting: microphone permission prompts, wrong default audio device, devices that refuse 48 kHz (switch everyone to 44100), and the test results table
+  - Copy the "Safety and privacy" section below into the README
+
+## Safety and privacy
+
+Read this before the first audio test. None of it is hard to follow, but the hearing and key items are easy to get wrong.
+
+- **Hearing:** never test with headphones or earbuds. 2–3 kHz is the range human hearing is most sensitive to, so the tones sound much louder than music at the same volume. Start at 25–50% system volume, keep 100% runs short, and don't stand right in front of the speaker.
+- **Speakers:** don't loop full-volume tones for minutes at a time. A single message plays for at most `MAX_FRAME_SECONDS` (about 42 s).
+- **Microphone permission** goes to the terminal app (Terminal, iTerm, VS Code), not the script, so anything you run there can record afterwards. Revoke it when you're done testing (macOS: System Settings → Privacy & Security → Microphone). Turn noise suppression and automatic gain back on after testing.
+- **Recordings** made with `--save-recordings` contain whatever was said in the room. They stay out of git but not off your disk: delete `recordings/` when you're done.
+- **Keys:** keep `key.bin`/`key.hex` outside iCloud, Dropbox, OneDrive and other synced folders. On a Mac with iCloud "Desktop & Documents" on, the Desktop and Documents folders count. `load_key` and `keygen` warn when they detect this. Move keys by USB stick, never through a chat app, and never commit one: anything pushed stays in git history even after it's deleted.
+- **Known limitation:** someone who records a transmission can play it back later and it will decode again. Replay protection is out of scope for the proof of concept.
 
 ## Milestones
 
