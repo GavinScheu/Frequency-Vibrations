@@ -37,6 +37,10 @@ CRC_INIT = 0xFFFF               # binascii.crc_hqx(header, CRC_INIT); nonzero so
 HEADER_BYTES = LENGTH_BYTES + CRC_BYTES
 MAX_BODY = 512                  # reject any length field above this
 
+# Longest possible transmission (preamble + sync + max frame), about 41.5 s at 10 ms symbols.
+# Receivers cap any single recording at a little more than this.
+MAX_FRAME_SECONDS = (len(PREAMBLE_BITS) + 8 + (HEADER_BYTES + MAX_BODY) * 8) * SYMBOL_SECONDS
+
 # Crypto
 KEY_BYTES = 32                  # AES-256
 NONCE_BYTES = 12                # GCM nonce

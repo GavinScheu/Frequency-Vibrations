@@ -167,6 +167,7 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
   - SYNC to RECEIVING when Person 3's preamble check succeeds on the working buffer; SYNC back to IDLE after a 3 s timeout
   - RECEIVING ends when the decoded length has been reached; then hand the buffer to `demodulate`
   - Simplest first version: record from gate-open until 1 s of silence, then call `demodulate` on the whole buffer; move to true streaming only if there is time
+  - Cap every recording at `MAX_FRAME_SECONDS + 2` seconds (from `common.py`, about 43.5 s) no matter what the gate says, then hand it to `demodulate`; constant room noise would otherwise keep the gate open and the buffer growing forever
   - Reject any length field outside 28..512 (`parse_header` already raises `FramingError` for this)
 - [ ] Handle failures cleanly
   - Catch exactly the three error types from `common.py` and print one line each, never the garbled bytes, then return to IDLE: `DemodulationError` → `[discarded: no signal decoded]`, `FramingError` → `[discarded: corrupted header]`, `DecryptionError` → `[discarded: failed authentication]`
@@ -174,14 +175,15 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
 - [ ] Build the receiver CLI `receive.py`
   - Usage: `python receive.py --key key.bin [--device N]`; prints `crypto.key_fingerprint(key)` at startup (to compare with the sender), then each decoded message with a timestamp
   - Pipeline: capture, `demodulate`, `deframe`, `decrypt`, print
+  - Before printing, replace every character for which `str.isprintable()` is false (newlines, tabs, terminal escape codes) with `�`, so even a key holder cannot send text that rewrites or hijacks the terminal display
   - Load the key with `crypto.load_key(args.key)` so `--key` and `$FV_KEY_PATH` behave the same as in `send.py`
 - [ ] Build a push-to-listen fallback for debugging
-  - `audio = sounddevice.rec(int(FS * SECONDS), samplerate=FS, channels=1); sounddevice.wait()`, then the same decode path; add `--record-seconds 15`
-  - Optionally save every recording to a WAV file so a failed over-the-air attempt can be replayed offline
+  - `audio = sounddevice.rec(int(FS * SECONDS), samplerate=FS, channels=1); sounddevice.wait()`, then the same decode path; add `--record-seconds` (default 15, capped at `MAX_FRAME_SECONDS + 2`). 15 s only fits messages up to about 140 bytes (after the 1 s of padding silence); the 484-byte maximum needs about 42 s
+  - Saving recordings is off by default: with `--save-recordings`, write each one as a WAV into `recordings/` (already in `.gitignore`) and print the path, so a failed over-the-air attempt can be replayed offline. These files contain whatever was said in the room; delete them after testing
 - [ ] Own the end-to-end tests
   - Loopback test (`tests/test_loopback.py`): `send.py "msg" --key k.bin --out tmp.wav`, then `read_wav` → `demodulate` → `deframe` → `decrypt`, assert the plaintext matches; run it automatically before any hardware test. Also run it with a wrong key (expect `DecryptionError`) and a 484-byte message (the largest allowed)
   - Over-the-air matrix: distance 0.3 m, 1 m, 2 m by speaker volume 25%, 50%, 100%; record pass or fail and failure type in a table
-  - Turn off operating-system microphone processing (noise suppression, automatic gain, echo cancellation) before testing
+  - Turn off operating-system microphone processing (noise suppression, automatic gain, echo cancellation) before testing, and turn it back on afterwards
 - [ ] Write the README
   - Install: `pip install -r requirements.txt`
   - Key setup, run commands for sender and receiver, and the agreed constants
