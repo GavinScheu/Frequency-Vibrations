@@ -6,17 +6,19 @@ The preamble and sync byte are added by modem.modulate, not here.
 import binascii
 import struct
 
-from common import CRC_BYTES, FramingError, HEADER_BYTES, LENGTH_BYTES, MAX_BODY
+from common import CRC_INIT, FramingError, HEADER_BYTES, LENGTH_BYTES, MAX_BODY, MIN_BODY
+
+
+def _crc(length_field: bytes) -> int:
+    return binascii.crc_hqx(length_field, CRC_INIT)
 
 
 def frame(body: bytes) -> bytes:
-    """Return header + body. Raises ValueError if body is longer than MAX_BODY."""
-    # TODO:
-    #   - reject len(body) > MAX_BODY
-    #   - header = struct.pack(">H", len(body))
-    #   - crc = binascii.crc_hqx(header, 0)
-    #   - return header + struct.pack(">H", crc) + body
-    raise NotImplementedError
+    """Return header + body. Raises ValueError unless MIN_BODY <= len(body) <= MAX_BODY."""
+    if not MIN_BODY <= len(body) <= MAX_BODY:
+        raise ValueError(f"body is {len(body)} bytes; must be {MIN_BODY}..{MAX_BODY}")
+    header = struct.pack(">H", len(body))
+    return header + struct.pack(">H", _crc(header)) + body
 
 
 def parse_header(header: bytes) -> int:
@@ -24,23 +26,26 @@ def parse_header(header: bytes) -> int:
 
     Shared with the demodulator, which needs the length to know how many more
     bits to decode. Raises FramingError on a short header, bad CRC, or a
-    length over MAX_BODY.
+    length outside MIN_BODY..MAX_BODY.
     """
-    # TODO:
-    #   - need at least HEADER_BYTES bytes
-    #   - unpack length and crc from header[:HEADER_BYTES]
-    #   - check the CRC *first*, then the MAX_BODY cap
-    raise NotImplementedError
+    if len(header) < HEADER_BYTES:
+        raise FramingError(f"header is {len(header)} bytes; need {HEADER_BYTES}")
+    length, crc = struct.unpack(">HH", header[:HEADER_BYTES])
+    if crc != _crc(header[:LENGTH_BYTES]):
+        raise FramingError("bad header CRC")
+    if not MIN_BODY <= length <= MAX_BODY:
+        raise FramingError(f"length {length} outside {MIN_BODY}..{MAX_BODY}")
+    return length
 
 
 def deframe(data: bytes) -> bytes:
     """Check the header and return exactly `length` bytes of body.
 
-    Raises FramingError on a short header, bad CRC, length over MAX_BODY,
+    Bytes after the body are ignored. Raises FramingError on a bad header
     or fewer than `length` body bytes.
     """
-    # TODO:
-    #   - length = parse_header(data)
-    #   - check enough bytes follow the header, then return data[HEADER_BYTES:HEADER_BYTES + length]
-    #   - bytes after the body are ignored
-    raise NotImplementedError
+    length = parse_header(data)
+    end = HEADER_BYTES + length
+    if len(data) < end:
+        raise FramingError(f"frame truncated: have {len(data) - HEADER_BYTES} of {length} body bytes")
+    return data[HEADER_BYTES:end]

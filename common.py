@@ -5,7 +5,8 @@ Change anything here only by team agreement (Step 0 of the task plan).
 Interfaces:
     crypto.encrypt(plaintext: str, key: bytes) -> bytes      nonce + ciphertext + tag
     crypto.decrypt(blob: bytes, key: bytes) -> str           raises DecryptionError
-    crypto.load_key(path: str | None = None) -> bytes        falls back to $FV_KEY_PATH
+    crypto.load_key(path: str | None = None) -> bytes        falls back to $FV_KEY_PATH; binary or hex file
+    crypto.key_fingerprint(key: bytes) -> str                'xxxx-xxxx', safe to print
     framing.frame(body: bytes) -> bytes                      length + header CRC + body
     framing.parse_header(header: bytes) -> int               body length; raises FramingError
     framing.deframe(data: bytes) -> bytes                    raises FramingError
@@ -31,7 +32,8 @@ SYNC_BYTE = 0x7E                # marks the start of the length field
 
 # Framing
 LENGTH_BYTES = 2                # big-endian body length
-CRC_BYTES = 2                   # CRC-16 (binascii.crc_hqx, init 0) over the length field
+CRC_BYTES = 2                   # CRC-16/CCITT-FALSE over the length field
+CRC_INIT = 0xFFFF               # binascii.crc_hqx(header, CRC_INIT); nonzero so an all-zero header fails
 HEADER_BYTES = LENGTH_BYTES + CRC_BYTES
 MAX_BODY = 512                  # reject any length field above this
 
@@ -41,6 +43,8 @@ NONCE_BYTES = 12                # GCM nonce
 TAG_BYTES = 16                  # GCM tag
 KEY_ENV_VAR = "FV_KEY_PATH"     # fallback when --key is not given
 
+# Smallest valid body (an empty message): anything shorter is noise
+MIN_BODY = NONCE_BYTES + TAG_BYTES
 # Largest plaintext (in UTF-8 bytes) that still fits in one frame
 MAX_PLAINTEXT = MAX_BODY - NONCE_BYTES - TAG_BYTES
 
@@ -50,7 +54,7 @@ class DecryptionError(Exception):
 
 
 class FramingError(Exception):
-    """Bad header CRC, length over MAX_BODY, or truncated frame."""
+    """Bad header CRC, length outside MIN_BODY..MAX_BODY, or truncated frame."""
 
 
 class DemodulationError(Exception):
