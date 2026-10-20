@@ -1,0 +1,14 @@
+# Pre-shared keys: never commit
+key.bin
+key.hex
+*.key
+*.tmp
+
+# Generated audio; debug recordings contain room audio
+*.wav
+!reference.wav
+recordings/
+
+.venv/
+__pycache__/
+.pytest_cache/
