@@ -14,7 +14,7 @@ Interfaces:
     modem.write_wav(path: str, samples: np.ndarray) -> None  mono 16-bit PCM at SAMPLE_RATE
     modem.read_wav(path: str) -> np.ndarray                  float32 in [-1, 1]
     modem.play(samples: np.ndarray, device: int | None = None) -> None
-    demod.demodulate(samples: np.ndarray) -> bytes           frame bytes; raises DemodulationError
+    demod.demodulate(samples: np.ndarray) -> bytes           frame bytes; raises DemodulationError or FramingError
 
 Every failure a receiver can hit is one of DemodulationError, FramingError,
 or DecryptionError, so receive.py catches exactly those three.

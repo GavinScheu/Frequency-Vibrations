@@ -105,20 +105,20 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
 
 ## Julia: Transmitter audio
 
-- [ ] Implement `modulate` (FSK)
+- [x] Implement `modulate` (FSK)
   - Bits: `bits = np.unpackbits(np.frombuffer(frame, dtype=np.uint8))` (most significant bit first); prepend the preamble bits and the sync byte
   - Per-sample frequency: `freq = np.repeat(np.where(bits == 1, F1, F0), SAMPLES_PER_SYMBOL)`
   - Build the waveform with continuous phase so there are no clicks at symbol boundaries: `phase = 2 * np.pi * np.cumsum(freq) / FS`, then `signal = np.sin(phase)`
   - Apply a 5 ms fade in and fade out, and add about 0.5 s of silence before and after
   - Scale to a peak of about 0.8 and return `float32` so playback and WAV writing both work
-- [ ] Write WAV output: `write_wav(path, samples)`
+- [x] Write WAV output: `write_wav(path, samples)`
   - Convert with `(signal * 32767).astype(np.int16)`
   - Use the stdlib `wave` module: `setnchannels(1)`, `setsampwidth(2)`, `setframerate(FS)`, then `writeframes(data.tobytes())`
   - Check the file opens in an audio player and sounds like two alternating tones
-- [ ] Read WAV input: `read_wav(path) -> np.ndarray` (Person 3 and Person 4 depend on this for every offline test)
+- [x] Read WAV input: `read_wav(path) -> np.ndarray` (Person 3 and Person 4 depend on this for every offline test)
   - Stdlib `wave`; `np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768`
   - Raise `ValueError` unless the file is mono, 16-bit, at `SAMPLE_RATE`; phone recordings will need converting first (for example `ffmpeg -i in.m4a -ac 1 -ar 48000 out.wav`)
-- [ ] Play through the speaker: `play(samples, device=None)`
+- [x] Play through the speaker: `play(samples, device=None)`
   - `sounddevice.play(signal, FS, device=device)` followed by `sounddevice.wait()`
   - List devices with `sounddevice.query_devices()`; `send.py` already passes its `--device` argument through
   - Keep system volume at a fixed level (for example 50%) and note it in the README so test runs are comparable
@@ -126,7 +126,7 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
   - Keep each tone at a whole number of cycles per symbol so the detector stays clean
   - Try the pairs 2000/3000 Hz and 1500/2500 Hz, and symbol lengths of 20, 10, and 5 ms
   - Avoid tones below about 500 Hz (small speakers roll off) and above about 6 kHz (microphones and compression roll off)
-- [ ] Verify the audio visually
+- [ ] Verify the audio visually (`reference.wav` is committed; the spectrogram check is still to do)
   - Plot a spectrogram with `matplotlib.pyplot.specgram(signal, Fs=FS)` and confirm two clear horizontal bands at the chosen frequencies, switching in the pattern of the preamble
   - Save one reference WAV for Person 3 to test against, made from a fixed frame so no key is needed: `write_wav("reference.wav", modulate(frame(bytes(range(32)))))`, using `frame` from `framing.py`. The body must be at least 28 bytes, or `frame` raises `ValueError`. Commit it (`.gitignore` allows `reference.wav`) and note its contents in the README
 
@@ -146,7 +146,7 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
   - Then decode exactly `length * 8` more bits
   - Convert bits to bytes with `np.packbits` and return header + body (the bytes after the sync byte) for Jacob's `deframe`
   - Raise `DemodulationError` (from `common.py`) when no preamble is found or the recording ends before `length` bytes, rather than returning garbage
-- [ ] Test entirely offline with WAV files (synthetic waveform tests are in `tests/test_demod.py`; testing against Julia's WAV output awaits `modem.py` and `read_wav`)
+- [ ] Test entirely offline with WAV files (`tests/test_demod.py` decodes `reference.wav`, random bodies from the real `modulate`, noise, volume and leading silence; the phone-recording test is still to do)
   - Load recordings with Julia's `read_wav`
   - Decode `reference.wav` first and assert `deframe(demodulate(samples)) == bytes(range(32))`, then random bodies of varying length (`modulate(frame(os.urandom(n)))` with 28 ≤ n ≤ 512)
   - Stress tests: add Gaussian noise at 20, 10, and 0 dB signal-to-noise ratio; scale volume to 50%, 10%, and 5%; prepend random leading silence; play the WAV through a speaker and record it with a phone to get realistic distortion
@@ -157,11 +157,11 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
 
 ## Person 4: Live listener, integration, testing
 
-- [ ] Build the continuous capture loop
+- [x] Build the continuous capture loop
   - `sounddevice.InputStream(samplerate=FS, channels=1, dtype='float32', blocksize=1024, callback=cb)`
   - The callback only copies and queues: `q.put(indata[:, 0].copy())`; log the `status` argument, since overflow warnings mean dropped audio
   - A processing loop pulls from the queue; keep a ring buffer of the last 2 seconds (`collections.deque` of blocks) so the start of a transmission is not lost when the gate opens late
-- [ ] Build the state machine (IDLE, SYNC, RECEIVING)
+- [x] Build the state machine (IDLE, SYNC, RECEIVING)
   - Energy gate: compute `rms = np.sqrt(np.mean(block**2))`; measure the room noise floor for the first second and set the threshold to about 3 times that (with a small minimum)
   - IDLE to SYNC when the gate opens; copy the ring buffer into the working buffer
   - SYNC to RECEIVING when Person 3's preamble check succeeds on the working buffer; SYNC back to IDLE after a 3 s timeout
@@ -169,18 +169,18 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
   - Simplest first version: record from gate-open until 1 s of silence, then call `demodulate` on the whole buffer; move to true streaming only if there is time
   - Cap every recording at `MAX_FRAME_SECONDS + 2` seconds (from `common.py`, about 43.5 s) no matter what the gate says, then hand it to `demodulate`; constant room noise would otherwise keep the gate open and the buffer growing forever
   - Reject any length field outside 28..512 (`parse_header` already raises `FramingError` for this)
-- [ ] Handle failures cleanly
+- [x] Handle failures cleanly
   - Catch exactly the three error types from `common.py` and print one line each, never the garbled bytes, then return to IDLE: `DemodulationError` → `[discarded: no signal decoded]`, `FramingError` → `[discarded: corrupted header]`, `DecryptionError` → `[discarded: failed authentication]`
   - Log how often each failure type happens during the over-the-air tests
-- [ ] Build the receiver CLI `receive.py`
+- [x] Build the receiver CLI `receive.py`
   - Usage: `python receive.py --key key.bin [--device N]`; prints `crypto.key_fingerprint(key)` at startup (to compare with the sender), then each decoded message with a timestamp
   - Pipeline: capture, `demodulate`, `deframe`, `decrypt`, print
   - Before printing, replace every character for which `str.isprintable()` is false (newlines, tabs, terminal escape codes) with `�`, so even a key holder cannot send text that rewrites or hijacks the terminal display
   - Load the key with `crypto.load_key(args.key)` so `--key` and `$FV_KEY_PATH` behave the same as in `send.py`
-- [ ] Build a push-to-listen fallback for debugging
+- [x] Build a push-to-listen fallback for debugging
   - `audio = sounddevice.rec(int(FS * SECONDS), samplerate=FS, channels=1); sounddevice.wait()`, then the same decode path; add `--record-seconds` (default 15, capped at `MAX_FRAME_SECONDS + 2`). 15 s only fits messages up to about 140 bytes (after the 1 s of padding silence); the 484-byte maximum needs about 42 s
   - Saving recordings is off by default: with `--save-recordings`, write each one as a WAV into `recordings/` (already in `.gitignore`) and print the path, so a failed over-the-air attempt can be replayed offline. These files contain whatever was said in the room; delete them after testing
-- [ ] Own the end-to-end tests
+- [ ] Own the end-to-end tests (loopback tests in `tests/test_loopback.py` are done; the over-the-air matrix is still to do)
   - Loopback test (`tests/test_loopback.py`): `send.py "msg" --key k.bin --out tmp.wav`, then `read_wav` → `demodulate` → `deframe` → `decrypt`, assert the plaintext matches; run it automatically before any hardware test. Also run it with a wrong key (expect `DecryptionError`) and a 484-byte message (the largest allowed)
   - Over-the-air matrix: distance 0.3 m, 1 m, 2 m by speaker volume 25%, 50%, 100%; record pass or fail and failure type in a table
   - Turn off operating-system microphone processing (noise suppression, automatic gain, echo cancellation) before testing, and turn it back on afterwards

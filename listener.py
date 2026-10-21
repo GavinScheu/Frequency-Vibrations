@@ -11,26 +11,39 @@ Design (matches the task plan):
     The PoC uses the "record from gate-open until trailing silence, then decode
     the whole buffer" strategy named in the plan; true per-symbol streaming is
     a later optimization and the structure here leaves room for it.
+  * Every reception is capped at MAX_FRAME_SECONDS + 2 so constant room noise
+    cannot keep the gate open and grow the buffer forever.
   * Failures are counted and printed as one clean line, never garbled bytes.
 """
 
-import time
-import queue
 import collections
+import os
+import queue
+import time
 
 import numpy as np
 
-from common import (
-    FS, SILENCE_HANG_S, GATE_MULTIPLIER, GATE_MIN_RMS, SYNC_TIMEOUT_S,
-)
-from decoder import decode
+from common import MAX_FRAME_SECONDS, PREAMBLE_BITS, SAMPLE_RATE, SYMBOL_SECONDS
+from decoder import DISCARD_LINES, decode
 
 BLOCKSIZE = 1024
 RING_SECONDS = 2.0
+MAX_RECORD_SECONDS = MAX_FRAME_SECONDS + 2
+
+# Listener tuning; local to the receiver, so not part of the shared contract.
+GATE_MULTIPLIER = 3.0       # gate threshold = noise floor * this
+GATE_MIN_RMS = 1e-3         # floor for the threshold in a very quiet room
+SILENCE_HANG_S = 1.0        # quiet time that ends a reception
+SYNC_TIMEOUT_S = 3.0        # SYNC gives up if the gate closes this soon...
+SYNC_MIN_HOT_S = (len(PREAMBLE_BITS) + 8) * SYMBOL_SECONDS  # ...with less than a preamble of signal
 
 
 def rms(block: np.ndarray) -> float:
     return float(np.sqrt(np.mean(block ** 2))) if len(block) else 0.0
+
+
+def timestamped(text: str) -> str:
+    return f"[{time.strftime('%H:%M:%S')}] {text}"
 
 
 class FailureLog:
@@ -48,7 +61,7 @@ class FailureLog:
 
     def summary(self) -> str:
         parts = [f"ok={self.ok}"]
-        for reason in ("no_preamble", "bad_header", "failed_auth"):
+        for reason in DISCARD_LINES:
             parts.append(f"{reason}={self.counts[reason]}")
         return "  ".join(parts)
 
@@ -56,14 +69,26 @@ class FailureLog:
 class Listener:
     """Owns the input stream, the state machine, and the decode handoff."""
 
-    def __init__(self, device=None, on_message=None, verbose=True):
+    def __init__(self, key: bytes, device=None, on_message=None, verbose=True):
+        self.key = key
         self.device = device
-        self.on_message = on_message or self._default_print
+        self.on_message = on_message or (lambda text: print(timestamped(text)))
         self.verbose = verbose
         self.q: "queue.Queue[np.ndarray]" = queue.Queue()
         self.failures = FailureLog()
         self.noise_floor = GATE_MIN_RMS
         self._stop = False
+
+        self.state = "IDLE"
+        self._ring = collections.deque(maxlen=int(RING_SECONDS * SAMPLE_RATE / BLOCKSIZE) + 1)
+        self._working: list[np.ndarray] = []
+        self._samples = 0       # samples in the working buffer
+        self._hot_s = 0.0       # seconds above the gate since it opened
+        self._silence_s = 0.0   # current run of trailing quiet
+
+    @property
+    def gate(self) -> float:
+        return self.noise_floor * GATE_MULTIPLIER
 
     # --- audio callback: copy + queue only --------------------------------- #
     def _callback(self, indata, frames, time_info, status):
@@ -73,40 +98,84 @@ class Listener:
         self.q.put(indata[:, 0].copy())
 
     # --- noise-floor calibration ------------------------------------------- #
-    def _calibrate(self, seconds=1.0):
-        """Measure the room noise floor from the first second of audio."""
+    def calibrate(self, blocks) -> None:
+        """Set the noise floor from blocks of room audio (the first second)."""
+        blocks = list(blocks)
+        if blocks:
+            self.noise_floor = max(rms(np.concatenate(blocks)), GATE_MIN_RMS)
+        if self.verbose:
+            print(f"[calibrated] noise floor rms={self.noise_floor:.5f} gate={self.gate:.5f}")
+
+    def _calibration_blocks(self, seconds=1.0):
         deadline = time.time() + seconds
-        samples = []
         while time.time() < deadline:
             try:
-                samples.append(self.q.get(timeout=0.5))
+                yield self.q.get(timeout=0.5)
             except queue.Empty:
-                break
-        if samples:
-            floor = rms(np.concatenate(samples))
-            self.noise_floor = max(floor, GATE_MIN_RMS)
-        if self.verbose:
-            print(f"[calibrated] noise floor rms={self.noise_floor:.5f} "
-                  f"gate={self.noise_floor * GATE_MULTIPLIER:.5f}")
+                return
+
+    # --- state machine ----------------------------------------------------- #
+    def feed(self, block: np.ndarray) -> None:
+        """Advance the state machine by one block of samples."""
+        block_s = len(block) / SAMPLE_RATE
+        hot = rms(block) > self.gate
+        self._ring.append(block)
+
+        if self.state == "IDLE":
+            if hot:
+                # Seed the working buffer with the ring so we keep the
+                # transmission's opening samples.
+                self._working = list(self._ring)
+                self._samples = sum(len(b) for b in self._working)
+                self._hot_s, self._silence_s = block_s, 0.0
+                self.state = "SYNC"
+            return
+
+        self._working.append(block)
+        self._samples += len(block)
+        if hot:
+            self._hot_s += block_s
+            self._silence_s = 0.0
+        else:
+            self._silence_s += block_s
+
+        if self.state == "SYNC":
+            if self._hot_s >= SYNC_MIN_HOT_S:
+                self.state = "RECEIVING"
+            elif self._silence_s >= SILENCE_HANG_S or self._samples / SAMPLE_RATE > SYNC_TIMEOUT_S:
+                self._reset()  # a click or a burst of noise, too short to be a preamble
+                return
+
+        if self.state == "RECEIVING":
+            done = self._silence_s >= SILENCE_HANG_S
+            capped = self._samples >= MAX_RECORD_SECONDS * SAMPLE_RATE
+            if done or capped:
+                buf = np.concatenate(self._working)
+                self._reset()
+                self._handle(buf)
+
+    def _reset(self) -> None:
+        self._working = []
+        self._samples = 0
+        self._hot_s = self._silence_s = 0.0
+        self.state = "IDLE"
+
+    def _handle(self, buf: np.ndarray):
+        result = decode(buf, self.key)
+        self.failures.record(result)
+        if result.ok:
+            self.on_message(result.text)
+        elif self.verbose:
+            print(result.line())
 
     # --- main loop --------------------------------------------------------- #
     def run(self):
         import sounddevice as sd
 
-        gate = self.noise_floor * GATE_MULTIPLIER
-        ring = collections.deque(maxlen=int(RING_SECONDS * FS / BLOCKSIZE) + 1)
-
-        state = "IDLE"
-        working = []                       # blocks accumulated during a reception
-        silence_run = 0.0                  # seconds of trailing silence seen
-        sync_deadline = 0.0
-        block_seconds = BLOCKSIZE / FS
-
-        with sd.InputStream(samplerate=FS, channels=1, dtype="float32",
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
                             blocksize=BLOCKSIZE, device=self.device,
                             callback=self._callback):
-            self._calibrate()
-            gate = self.noise_floor * GATE_MULTIPLIER
+            self.calibrate(self._calibration_blocks())
             if self.verbose:
                 print("[listening]  Ctrl-C to stop")
 
@@ -115,73 +184,33 @@ class Listener:
                     block = self.q.get(timeout=0.5)
                 except queue.Empty:
                     continue
-
-                ring.append(block)
-                level = rms(block)
-                hot = level > gate
-
-                if state == "IDLE":
-                    if hot:
-                        # Seed the working buffer with the ring so we keep the
-                        # transmission's opening samples.
-                        working = list(ring)
-                        silence_run = 0.0
-                        sync_deadline = time.time() + SYNC_TIMEOUT_S
-                        state = "RECEIVING"
-
-                elif state == "RECEIVING":
-                    working.append(block)
-                    if hot:
-                        silence_run = 0.0
-                    else:
-                        silence_run += block_seconds
-
-                    # End the reception after enough trailing silence...
-                    done = silence_run >= SILENCE_HANG_S
-                    # ...or bail if it never looked like a real transmission.
-                    timed_out = time.time() > sync_deadline and silence_run > 0
-                    if done or timed_out:
-                        buf = np.concatenate(working)
-                        self._handle(buf)
-                        working = []
-                        silence_run = 0.0
-                        state = "IDLE"
-
-    def _handle(self, buf: np.ndarray):
-        result = decode(buf)
-        self.failures.record(result)
-        if result.ok:
-            self.on_message(result.text)
-        elif self.verbose:
-            print(result.line())
+                self.feed(block)
 
     def stop(self):
         self._stop = True
-
-    @staticmethod
-    def _default_print(text: str):
-        stamp = time.strftime("%H:%M:%S")
-        print(f"[{stamp}] {text}")
 
 
 # --------------------------------------------------------------------------- #
 # Push-to-listen fallback for debugging (fixed-length record, then decode).    #
 # --------------------------------------------------------------------------- #
-def record_and_decode(seconds=15, device=None, save_path=None):
-    """Record a fixed window, optionally save it, then run the decode path."""
+def record_and_decode(key: bytes, seconds=15, device=None, save_dir=None):
+    """Record a fixed window (capped at MAX_RECORD_SECONDS), optionally save it, then decode."""
     import sounddevice as sd
 
-    print(f"[recording {seconds}s]")
-    audio = sd.rec(int(FS * seconds), samplerate=FS, channels=1,
+    seconds = min(seconds, MAX_RECORD_SECONDS)
+    print(f"[recording {seconds:g}s]")
+    audio = sd.rec(int(SAMPLE_RATE * seconds), samplerate=SAMPLE_RATE, channels=1,
                    dtype="float32", device=device)
     sd.wait()
     samples = audio[:, 0]
 
-    if save_path:
-        from audio_io import write_wav
-        write_wav(save_path, samples)
-        print(f"[saved] {save_path}")
+    if save_dir:
+        from modem import write_wav
+        os.makedirs(save_dir, exist_ok=True)
+        path = os.path.join(save_dir, time.strftime("%Y%m%d-%H%M%S.wav"))
+        write_wav(path, samples)
+        print(f"[saved] {path}  (contains room audio; delete after testing)")
 
-    result = decode(samples)
-    print(result.line())
+    result = decode(samples, key)
+    print(timestamped(result.text) if result.ok else result.line())
     return result

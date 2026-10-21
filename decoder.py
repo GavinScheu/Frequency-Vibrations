@@ -11,59 +11,46 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from framing import deframe, length_aad
-from crypto import decrypt, DecryptionError
-from modem import demodulate, DemodError
-from common import HEADER_BYTES
+from common import DecryptionError, DemodulationError, FramingError
+from crypto import decrypt
+from demod import demodulate
+from framing import deframe
+
+# One line per failure type, exactly as the task plan specifies.
+DISCARD_LINES = {
+    "no_signal": "[discarded: no signal decoded]",
+    "bad_header": "[discarded: corrupted header]",
+    "failed_auth": "[discarded: failed authentication]",
+}
+
+
+def sanitize(text: str) -> str:
+    """Replace non-printable characters (newlines, tabs, terminal escapes) with U+FFFD."""
+    return "".join(ch if ch.isprintable() else "�" for ch in text)
 
 
 @dataclass
 class DecodeResult:
     ok: bool
     text: str = ""
-    reason: str = ""      # one of: "no_preamble", "bad_header", "failed_auth"
+    reason: str = ""      # one of DISCARD_LINES' keys when not ok
 
     def line(self) -> str:
-        if self.ok:
-            return self.text
-        pretty = {
-            "no_preamble": "no preamble found",
-            "bad_header": "bad header / framing",
-            "failed_auth": "failed authentication",
-        }.get(self.reason, self.reason)
-        return f"[discarded: {pretty}]"
+        return self.text if self.ok else DISCARD_LINES[self.reason]
 
 
-def decode(samples: np.ndarray) -> DecodeResult:
+def decode(samples: np.ndarray, key: bytes) -> DecodeResult:
     """Run the whole receive pipeline on a buffer of samples."""
-    # 1. Demodulate audio -> frame bytes.
     try:
-        frame_bytes = demodulate(samples)
-    except DemodError:
-        return DecodeResult(ok=False, reason="no_preamble")
-
-    # 2. Deframe: check header CRC and length, pull out the body.
-    try:
-        body = deframe(frame_bytes)
-    except ValueError:
+        body = deframe(demodulate(samples))
+    except DemodulationError:
+        return DecodeResult(ok=False, reason="no_signal")
+    except FramingError:  # bad CRC or length, from demodulate's parse_header or deframe
         return DecodeResult(ok=False, reason="bad_header")
 
-    # 3. Decrypt: the 2-byte length field is the GCM aad.
-    aad = length_aad(len(body))
     try:
-        from crypto import decrypt as _decrypt  # explicit for clarity
-        text = _decrypt(body, _KEY, aad=aad)
+        text = decrypt(body, key)
     except DecryptionError:
         return DecodeResult(ok=False, reason="failed_auth")
 
-    return DecodeResult(ok=True, text=text)
-
-
-# The key is injected once at startup so decode() stays a pure-ish function the
-# listener can call per buffer without threading the key through every layer.
-_KEY = b""
-
-
-def set_key(key: bytes) -> None:
-    global _KEY
-    _KEY = key
+    return DecodeResult(ok=True, text=sanitize(text))
