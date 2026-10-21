@@ -146,14 +146,43 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
   - Then decode exactly `length * 8` more bits
   - Convert bits to bytes with `np.packbits` and return header + body (the bytes after the sync byte) for Jacob's `deframe`
   - Raise `DemodulationError` (from `common.py`) when no preamble is found or the recording ends before `length` bytes, rather than returning garbage
-- [ ] Test entirely offline with WAV files (`tests/test_demod.py` decodes `reference.wav`, random bodies from the real `modulate`, noise, volume and leading silence; the phone-recording test is still to do)
+- [x] Test entirely offline with WAV files (`tests/test_demod.py` decodes `reference.wav`, random bodies from the real `modulate`, noise, volume and leading silence; the phone-recording test is still to do)
   - Load recordings with Julia's `read_wav`
   - Decode `reference.wav` first and assert `deframe(demodulate(samples)) == bytes(range(32))`, then random bodies of varying length (`modulate(frame(os.urandom(n)))` with 28 ≤ n ≤ 512)
   - Stress tests: add Gaussian noise at 20, 10, and 0 dB signal-to-noise ratio; scale volume to 50%, 10%, and 5%; prepend random leading silence; play the WAV through a speaker and record it with a phone to get realistic distortion
-- [ ] Measure and report bit error rate
-  - Script: send known random bytes, demodulate, and compare bit by bit
+- [x] Measure and report bit error rate for simulated channels
+  - `measure_ber.py` sends known random bytes, demodulates, and compares frame bits
   - Run across symbol lengths (20, 10, 5 ms) and noise levels, and record the results in a small table
-  - Report the fastest symbol rate with zero errors at realistic noise; the team uses it as the baseline
+  - The fastest zero-error simulated rate is 200 bit/s at 5 ms symbols; keep the current 100 bit/s real-world baseline until the faster rate is tested over the air
+
+### Offline bit-error-rate results
+
+Measured with `python measure_ber.py --trials 10`: 10 random 64-byte bodies per
+symbol duration and noise level. White Gaussian noise is added to the entire
+recording; SNR is relative to the RMS of the non-silent modulated samples.
+BER is measured over successfully decoded length/header/body bits; frame
+failures are counted separately. These are simulated results, not over-the-air
+measurements.
+
+| Symbol | Rate | SNR | Decoded | Frame failures | Bit errors / compared bits | BER |
+|---:|---:|---:|---:|---:|---:|---:|
+| 20 ms | 50 bit/s | clean | 10/10 | 0/10 | 0/5440 | 0 |
+| 20 ms | 50 bit/s | 20 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 20 ms | 50 bit/s | 10 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 20 ms | 50 bit/s | 0 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 10 ms | 100 bit/s | clean | 10/10 | 0/10 | 0/5440 | 0 |
+| 10 ms | 100 bit/s | 20 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 10 ms | 100 bit/s | 10 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 10 ms | 100 bit/s | 0 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 5 ms | 200 bit/s | clean | 10/10 | 0/10 | 0/5440 | 0 |
+| 5 ms | 200 bit/s | 20 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 5 ms | 200 bit/s | 10 dB | 10/10 | 0/10 | 0/5440 | 0 |
+| 5 ms | 200 bit/s | 0 dB | 10/10 | 0/10 | 0/5440 | 0 |
+
+- [ ] Measure BER on a phone recording: create `reference.wav` with
+  `python measure_ber.py --make-reference reference.wav`, play it through a
+  speaker, record the complete transmission as mono 48 kHz/16-bit PCM, then run
+  `python measure_ber.py --recording phone.wav`.
 
 ## Person 4: Live listener, integration, testing
 
