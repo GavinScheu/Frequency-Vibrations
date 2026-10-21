@@ -5,9 +5,6 @@ key.hex
 *.tmp
 
 # Generated audio; debug recordings contain room audio
-*.wav
-!reference.wav
-recordings/
 
 .venv/
 __pycache__/
@@ -15,3 +12,5 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+make_test_messages.py
