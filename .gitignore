@@ -5,6 +5,10 @@ key.hex
 *.tmp
 
 # Generated audio; debug recordings contain room audio
+*.wav
+!reference.wav
+!messages/*.wav
+recordings/
 
 .venv/
 __pycache__/
