@@ -10,22 +10,47 @@ import sys
 
 import numpy as np
 
-from common import SAMPLE_RATE
+from common import HEADER_BYTES, NONCE_BYTES, SAMPLE_RATE, TAG_BYTES
 from crypto import encrypt, key_fingerprint, load_key
 from framing import frame
 
 try:
-    from modem import modulate, play, write_wav  # Julia's code
-except ImportError:
-    # Stubs until modem.py lands, so the CLI can be tested end to end.
-    def modulate(frame_bytes: bytes) -> np.ndarray:
-        return np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1 s of silence
+    import modem  # Julia's code
+    _modem_problem = "missing from modem.py"
+except ImportError as e:  # modem.py absent, or present but failing to import
+    modem = None
+    _modem_problem = f"modem.py failed to import: {e}"
 
-    def write_wav(path: str, samples: np.ndarray) -> None:
-        print(f"[stub] would write {len(samples)} samples to {path}")
 
-    def play(samples: np.ndarray, device: int | None = None) -> None:
-        print(f"[stub] would play {len(samples) / SAMPLE_RATE:.1f} s of audio")
+def _stub_warning(name: str) -> None:
+    # Loud on stderr, so a stubbed run is never mistaken for real audio
+    print(f"warning: {name} {_modem_problem}; using a stub", file=sys.stderr)
+
+
+# Stubs for whichever modem functions are unavailable, so the CLI can still be tested.
+def _stub_modulate(frame_bytes: bytes) -> np.ndarray:
+    _stub_warning("modulate")
+    return np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1 s of silence
+
+
+def _stub_write_wav(path: str, samples: np.ndarray) -> None:
+    _stub_warning("write_wav")
+    print(f"[stub] would write {len(samples)} samples to {path}")
+
+
+def _stub_play(samples: np.ndarray, device: int | None = None) -> None:
+    _stub_warning("play")
+    print(f"[stub] would play {len(samples) / SAMPLE_RATE:.1f} s of audio")
+
+
+modulate = getattr(modem, "modulate", _stub_modulate)
+write_wav = getattr(modem, "write_wav", _stub_write_wav)
+play = getattr(modem, "play", _stub_play)
+
+
+def build_signal(message: str, key: bytes) -> np.ndarray:
+    """encrypt -> frame -> modulate; the samples send.py would write or play."""
+    return modulate(frame(encrypt(message, key)))
 
 
 def main() -> int:
@@ -42,14 +67,14 @@ def main() -> int:
 
     try:
         key = load_key(args.key)
-        blob = encrypt(args.message, key)
+        samples = build_signal(args.message, key)
     except (OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    framed = frame(blob)
-    samples = modulate(framed)
-    print(f"message {len(args.message.encode('utf-8'))} B, frame {len(framed)} B, "
+    msg_bytes = len(args.message.encode("utf-8"))
+    frame_bytes = HEADER_BYTES + NONCE_BYTES + msg_bytes + TAG_BYTES
+    print(f"message {msg_bytes} B, frame {frame_bytes} B, "
           f"audio {len(samples) / SAMPLE_RATE:.1f} s, key {key_fingerprint(key)}")
 
     if args.out:
