@@ -16,6 +16,4 @@ __pycache__/
 # macOS
 .DS_Store
 
-messages/
-
 make_test_messages.py
