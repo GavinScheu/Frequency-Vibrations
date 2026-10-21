@@ -1,0 +1,92 @@
+import binascii
+import struct
+
+import numpy as np
+import pytest
+
+from common import (
+    CRC_INIT,
+    DemodulationError,
+    FramingError,
+    F0,
+    F1,
+    HEADER_BYTES,
+    MAX_BODY,
+    MIN_BODY,
+    PREAMBLE_BITS,
+    SAMPLE_RATE,
+    SAMPLES_PER_SYMBOL,
+    SYNC_BYTE,
+)
+from demod import demodulate
+from framing import deframe, frame
+
+
+def modulate_for_test(frame_bytes, *, leading_samples=0):
+    frame_bits = np.unpackbits(np.frombuffer(frame_bytes, dtype=np.uint8))
+    sync_bits = np.unpackbits(np.array([SYNC_BYTE], dtype=np.uint8))
+    bits = np.concatenate((PREAMBLE_BITS, sync_bits, frame_bits))
+    frequencies = np.where(bits == 1, F1, F0)
+    frequencies = np.repeat(frequencies, SAMPLES_PER_SYMBOL)
+    phase = 2 * np.pi * np.cumsum(frequencies) / SAMPLE_RATE
+    signal = 0.8 * np.sin(phase)
+    return np.concatenate((np.zeros(leading_samples), signal, np.zeros(SAMPLE_RATE // 2)))
+
+
+@pytest.mark.parametrize(
+    ("body_size", "leading_samples"),
+    [(MIN_BODY, 0), (30, 137), (MAX_BODY, 997)],
+)
+def test_demodulate_round_trip(body_size, leading_samples):
+    body = np.random.default_rng(body_size).bytes(body_size)
+    recording = modulate_for_test(
+        frame(body), leading_samples=leading_samples
+    )
+
+    decoded_frame = demodulate(recording)
+
+    assert deframe(decoded_frame) == body
+    assert len(decoded_frame) == HEADER_BYTES + body_size
+
+
+@pytest.mark.parametrize("snr_db", [20, 10, 0])
+def test_demodulate_with_additive_noise(snr_db):
+    body = np.random.default_rng(23).bytes(MIN_BODY)
+    recording = modulate_for_test(frame(body), leading_samples=173)
+    noise_std = np.sqrt(0.32 / 10 ** (snr_db / 10))
+    noisy_recording = recording + np.random.default_rng(snr_db).normal(
+        0, noise_std, size=recording.shape
+    )
+
+    assert deframe(demodulate(noisy_recording)) == body
+
+
+@pytest.mark.parametrize("scale", [0.5, 0.1, 0.05])
+def test_demodulate_at_reduced_volume(scale):
+    body = np.random.default_rng(19).bytes(MIN_BODY)
+    recording = modulate_for_test(frame(body), leading_samples=61) * scale
+
+    assert deframe(demodulate(recording)) == body
+
+
+def test_demodulate_rejects_recording_without_preamble():
+    with pytest.raises(DemodulationError, match="preamble"):
+        demodulate(np.zeros(SAMPLE_RATE, dtype=np.float32))
+
+
+def test_demodulate_rejects_truncated_recording():
+    recording = modulate_for_test(frame(b"x" * MIN_BODY))
+    with pytest.raises(DemodulationError, match="frame was complete"):
+        demodulate(recording[: -(SAMPLE_RATE // 2 + SAMPLES_PER_SYMBOL)])
+
+
+def test_demodulate_propagates_header_crc_error():
+    body = b"x" * MIN_BODY
+    valid_frame = bytearray(frame(body))
+    length_field = struct.pack(">H", len(body))
+    valid_frame[2:4] = struct.pack(
+        ">H", binascii.crc_hqx(length_field, CRC_INIT) ^ 1
+    )
+
+    with pytest.raises(FramingError, match="CRC"):
+        demodulate(modulate_for_test(bytes(valid_frame)))

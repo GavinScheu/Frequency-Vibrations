@@ -132,21 +132,21 @@ The length field is authenticated: GCM covers the 2-byte length field as associa
 
 ## Person 3: Receiver demodulation (offline)
 
-- [ ] Implement tone detection per symbol window
+- [x] Implement tone detection per symbol window
   - Precompute two reference vectors: `ref0 = np.exp(-2j*np.pi*F0*n/FS)` and `ref1` likewise, where `n = np.arange(SAMPLES_PER_SYMBOL)`
   - For a window `w`, compare `abs(np.dot(w, ref1))` with `abs(np.dot(w, ref0))`; the larger is the bit (this is the same as Goertzel for one frequency, and simpler to write)
   - Unit-test it on clean tones from `modulate`: every window must decode correctly
-- [ ] Implement preamble detection and symbol-timing alignment
+- [x] Implement preamble detection and symbol-timing alignment
   - Slide a window across the recording in steps of about one tenth of a symbol (48 samples); at each offset decode the 24 preamble and sync bits and count how many match
   - Take the offset with the best match (a perfect or near-perfect score); that offset is the start of the symbol grid
   - Reject the recording if no offset scores above a threshold (for example 22 of 24 bits)
   - Optionally refine by searching one-sample steps within a tenth of a symbol around the best offset
-- [ ] Implement `demodulate` in `demod.py`
+- [x] Implement `demodulate` in `demod.py`
   - After the sync byte, decode 32 bits (length and header CRC) and pass those 4 bytes to `framing.parse_header`, which checks the CRC and the 28..512 range and returns the length; let its `FramingError` propagate rather than re-implementing the CRC
   - Then decode exactly `length * 8` more bits
   - Convert bits to bytes with `np.packbits` and return header + body (the bytes after the sync byte) for Jacob's `deframe`
   - Raise `DemodulationError` (from `common.py`) when no preamble is found or the recording ends before `length` bytes, rather than returning garbage
-- [ ] Test entirely offline with WAV files
+- [ ] Test entirely offline with WAV files (synthetic waveform tests are in `tests/test_demod.py`; testing against Julia's WAV output awaits `modem.py` and `read_wav`)
   - Load recordings with Julia's `read_wav`
   - Decode `reference.wav` first and assert `deframe(demodulate(samples)) == bytes(range(32))`, then random bodies of varying length (`modulate(frame(os.urandom(n)))` with 28 ≤ n ≤ 512)
   - Stress tests: add Gaussian noise at 20, 10, and 0 dB signal-to-noise ratio; scale volume to 50%, 10%, and 5%; prepend random leading silence; play the WAV through a speaker and record it with a phone to get realistic distortion
