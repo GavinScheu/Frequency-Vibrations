@@ -99,17 +99,17 @@ Fill in pass/fail and the failure type (`no signal`, `header`, `auth`) for each 
 
 ### Saved acoustic BER comparison
 
-One speaker-to-microphone recording was compared with the exact WAV played by
-the sending computer. Both decoded to 69-byte frames: 0 bit errors out of 552
-bits (BER 0.000). The sender WAV and receiver capture are kept locally at
-`recordings/quick-brown-fox-jumped-sender.wav` and
-`recordings/quick-brown-fox-jumped-receiver.wav`. They are ignored by Git because
-recordings may contain room audio.
+Sender WAVs in `recordings/` end in `S.wav`, and their matching receiver
+captures end in `R.wav`. For example, the quick-brown-fox pair is
+`recordings/quick_brown_foxS.wav` and `recordings/quick_brown_foxR.wav`. These local files are
+ignored by Git because recordings may contain room audio. One
+speaker-to-microphone comparison decoded both WAVs to the same 69-byte frame:
+0 bit errors out of 552 bits (BER 0.000).
 
 To repeat the comparison:
 
 ```powershell
-python measure_ber.py --expected .\recordings\quick-brown-fox-jumped-sender.wav --recording .\recordings\quick-brown-fox-jumped-receiver.wav
+python measure_ber.py --expected .\recordings\quick_brown_foxS.wav --recording .\recordings\quick_brown_foxR.wav
 ```
 
 ## Safety and privacy

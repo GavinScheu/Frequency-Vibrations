@@ -183,14 +183,14 @@ measurements.
 
 Compared the sender's exact WAV with the receiver computer's microphone
 recording. Both demodulated to the same 69-byte frame: 0 errors / 552 bits
-(BER 0.000). The sender and received WAV files are retained locally under
-`recordings/` as `quick-brown-fox-jumped-sender.wav` and
-`quick-brown-fox-jumped-receiver.wav`; they are ignored by Git because
+(BER 0.000). Sender WAVs in `recordings/` end in `S.wav`, and matching receiver
+captures end in `R.wav`. The quick-brown-fox pair is retained locally as
+`quick_brown_foxS.wav` and `quick_brown_foxR.wav`; these files are ignored by Git because
 recordings may contain room audio. A phone recording was not used.
 
 | Sender WAV | Receiver recording | Errors / bits | BER |
 |---|---|---:|---:|
-| `recordings/quick-brown-fox-jumped-sender.wav` | `recordings/quick-brown-fox-jumped-receiver.wav` | 0/552 | 0.000 |
+| `recordings/quick_brown_foxS.wav` | `recordings/quick_brown_foxR.wav` | 0/552 | 0.000 |
 
 ## Person 4: Live listener, integration, testing
 
