@@ -148,6 +148,26 @@ def test_save_recordings(fake_sd, key_file, tmp_path, monkeypatch):
     assert len(list((tmp_path / "recordings").glob("*.wav"))) == 1
 
 
+def test_named_recording_uses_safe_descriptive_filename(
+    fake_sd, key_file, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    receive.main(
+        [
+            "--key",
+            str(key_file),
+            "--record-seconds",
+            "1",
+            "--save-recordings",
+            "--recording-name",
+            "quick brown fox",
+        ]
+    )
+    saved = list((tmp_path / "recordings").glob("*.wav"))
+    assert len(saved) == 1
+    assert re.fullmatch(r"quick-brown-fox-\d{8}-\d{6}\.wav", saved[0].name)
+
+
 def test_recordings_are_not_saved_by_default(fake_sd, key_file, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     receive.main(["--key", str(key_file), "--record-seconds", "1"])

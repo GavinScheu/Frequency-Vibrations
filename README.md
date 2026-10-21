@@ -42,11 +42,12 @@ The sender prints the message and frame sizes, the audio length and the key fing
 ```bash
 python receive.py --key key.bin [--device N]                        # live: listen continuously
 python receive.py --key key.bin --record-seconds 15 [--save-recordings]   # push-to-listen
+python receive.py --key key.bin --record-seconds 15 --save-recordings --recording-name quick-brown-fox-jumped
 python receive.py --key key.bin --from-wav msg.wav                  # decode a WAV offline
 ```
 
 - **Live mode:** the receiver measures the room noise for one second, then opens an energy gate at about 3× that level. It records until 1 s of silence or until `MAX_FRAME_SECONDS + 2` (about 43.5 s), then decodes. Ctrl-C prints a tally of successes and failures.
-- **Push-to-listen** records a fixed window (default 15 s, capped at about 43.5 s), then decodes it. 15 s fits messages up to about 140 bytes; the 484-byte maximum needs about 42 s. `--save-recordings` also writes the recording to `recordings/`, so a failed attempt can be replayed with `--from-wav`.
+- **Push-to-listen** records a fixed window (default 15 s, capped at about 43.5 s), then decodes it. 15 s fits messages up to about 140 bytes; the 484-byte maximum needs about 42 s. `--save-recordings` also writes the recording to `recordings/`, so a failed attempt can be replayed with `--from-wav`. Add `--recording-name quick-brown-fox` to label a saved recording; a timestamp is appended to prevent overwriting earlier tests. Use the same label in the sender's `--out` filename to keep a test pair together.
 - **Output:** each decoded message prints with a timestamp. Non-printable characters (newlines, tabs, terminal escape codes) are replaced with `�`, so a message cannot rewrite your terminal.
 - **Failures** print exactly one line, never the garbled bytes:
 
@@ -95,6 +96,21 @@ Fill in pass/fail and the failure type (`no signal`, `header`, `auth`) for each 
 | 0.3 m | | | |
 | 1 m | | | |
 | 2 m | | | |
+
+### Saved acoustic BER comparison
+
+One speaker-to-microphone recording was compared with the exact WAV played by
+the sending computer. Both decoded to 69-byte frames: 0 bit errors out of 552
+bits (BER 0.000). The sender WAV and receiver capture are kept locally at
+`recordings/quick-brown-fox-jumped-sender.wav` and
+`recordings/quick-brown-fox-jumped-receiver.wav`. They are ignored by Git because
+recordings may contain room audio.
+
+To repeat the comparison:
+
+```powershell
+python measure_ber.py --expected .\recordings\quick-brown-fox-jumped-sender.wav --recording .\recordings\quick-brown-fox-jumped-receiver.wav
+```
 
 ## Safety and privacy
 

@@ -5,6 +5,7 @@ from measure_ber import (
     REFERENCE_BODY,
     bit_error_count,
     compare_phone_recording,
+    compare_recordings,
     format_results,
     run_benchmark,
 )
@@ -43,6 +44,40 @@ def test_reference_wav_can_be_compared_without_phone(tmp_path):
     modem.write_wav(str(path), modem.modulate(expected))
 
     assert compare_phone_recording(str(path)) == (0, len(expected) * 8, 0.0)
+
+
+def test_sender_and_receiver_wavs_can_be_compared(tmp_path):
+    expected_path = tmp_path / "sent.wav"
+    received_path = tmp_path / "received.wav"
+    expected = frame(np.random.default_rng(7).bytes(64))
+    modem.write_wav(str(expected_path), modem.modulate(expected))
+    modem.write_wav(str(received_path), modem.modulate(expected))
+
+    assert compare_recordings(str(expected_path), str(received_path)) == (
+        0,
+        len(expected) * 8,
+        0.0,
+        len(expected),
+        len(expected),
+    )
+
+
+def test_recording_comparison_marks_length_mismatch_ber_unavailable(tmp_path):
+    expected_path = tmp_path / "sent.wav"
+    received_path = tmp_path / "received.wav"
+    expected = frame(np.random.default_rng(7).bytes(64))
+    received = frame(np.random.default_rng(8).bytes(48))
+    modem.write_wav(str(expected_path), modem.modulate(expected))
+    modem.write_wav(str(received_path), modem.modulate(received))
+
+    errors, total, ber, expected_len, received_len = compare_recordings(
+        str(expected_path), str(received_path)
+    )
+
+    assert expected_len != received_len
+    assert errors >= abs(expected_len - received_len) * 8
+    assert total == len(expected) * 8
+    assert ber is None
 
 
 def test_benchmark_sweeps_rates_and_restores_shared_constants():

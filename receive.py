@@ -29,9 +29,16 @@ def main(argv=None) -> int:
                          f"max {MAX_RECORD_SECONDS:g}), then decode")
     ap.add_argument("--save-recordings", action="store_true",
                     help=f"with --record-seconds, also save the recording into {RECORDINGS_DIR}/")
+    ap.add_argument("--recording-name",
+                    help="optional label for a saved push-to-listen recording")
     ap.add_argument("--from-wav", default=None,
                     help="decode a WAV file offline instead of using the mic")
     args = ap.parse_args(argv)
+
+    if args.recording_name and (
+        args.record_seconds is None or not args.save_recordings
+    ):
+        ap.error("--recording-name requires --record-seconds and --save-recordings")
 
     try:
         key = load_key(args.key)
@@ -55,7 +62,8 @@ def main(argv=None) -> int:
     # Push-to-listen fallback.
     if args.record_seconds is not None:
         record_and_decode(key, seconds=args.record_seconds, device=args.device,
-                          save_dir=RECORDINGS_DIR if args.save_recordings else None)
+                          save_dir=RECORDINGS_DIR if args.save_recordings else None,
+                          recording_name=args.recording_name)
         return 0
 
     # Default: continuous live listening.

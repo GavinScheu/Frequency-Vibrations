@@ -179,10 +179,18 @@ measurements.
 | 5 ms | 200 bit/s | 10 dB | 10/10 | 0/10 | 0/5440 | 0 |
 | 5 ms | 200 bit/s | 0 dB | 10/10 | 0/10 | 0/5440 | 0 |
 
-- [ ] Measure BER on a phone recording: create `reference.wav` with
-  `python measure_ber.py --make-reference reference.wav`, play it through a
-  speaker, record the complete transmission as mono 48 kHz/16-bit PCM, then run
-  `python measure_ber.py --recording phone.wav`.
+### Speaker-to-microphone BER result
+
+Compared the sender's exact WAV with the receiver computer's microphone
+recording. Both demodulated to the same 69-byte frame: 0 errors / 552 bits
+(BER 0.000). The sender and received WAV files are retained locally under
+`recordings/` as `quick-brown-fox-jumped-sender.wav` and
+`quick-brown-fox-jumped-receiver.wav`; they are ignored by Git because
+recordings may contain room audio. A phone recording was not used.
+
+| Sender WAV | Receiver recording | Errors / bits | BER |
+|---|---|---:|---:|
+| `recordings/quick-brown-fox-jumped-sender.wav` | `recordings/quick-brown-fox-jumped-receiver.wav` | 0/552 | 0.000 |
 
 ## Person 4: Live listener, integration, testing
 

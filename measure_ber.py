@@ -1,8 +1,7 @@
-"""Measure frame bit errors across symbol durations and simulated noise.
+"""Measure frame bit errors across simulated noise or saved WAV recordings.
 
-Run `python measure_ber.py` for the offline benchmark. For a phone recording,
-first create `reference.wav`, play it through a speaker, record it, then run
-`python measure_ber.py --recording phone.wav`.
+Compare a sender WAV with a receiver recording using
+`python measure_ber.py --expected sent.wav --recording received.wav`.
 """
 
 import argparse
@@ -142,6 +141,24 @@ def compare_phone_recording(path):
     return errors, total, ber
 
 
+def compare_recordings(expected_path, recording_path):
+    """Compare frames decoded from a sender WAV and a receiver WAV.
+
+    BER is reported only when both frames contain the same number of bits.
+    A length mismatch is reported separately because BER is not meaningful
+    when the expected and recovered frame lengths differ.
+    """
+    import demod
+    import modem
+
+    expected = demod.demodulate(modem.read_wav(expected_path))
+    received = demod.demodulate(modem.read_wav(recording_path))
+    errors = bit_error_count(expected, received)
+    total = len(expected) * 8
+    ber = errors / total if len(expected) == len(received) else None
+    return errors, total, ber, len(expected), len(received)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trials", type=int, default=5, help="trials per SNR and rate")
@@ -160,12 +177,21 @@ def main():
     parser.add_argument(
         "--recording",
         metavar="WAV",
-        help="measure BER for a phone recording of the fixed reference frame",
+        help="receiver recording WAV to measure",
+    )
+    parser.add_argument(
+        "--expected",
+        metavar="WAV",
+        help="sender WAV containing the exact transmission to compare against --recording",
     )
     args = parser.parse_args()
 
     if args.make_reference and args.recording:
         parser.error("use --make-reference or --recording, not both")
+    if args.make_reference and args.expected:
+        parser.error("--make-reference cannot be combined with --expected")
+    if args.expected and not args.recording:
+        parser.error("--expected requires --recording")
     if args.make_reference:
         import modem
         from framing import frame
@@ -179,9 +205,21 @@ def main():
         return 0
     if args.recording:
         try:
-            errors, total, ber = compare_phone_recording(args.recording)
+            if args.expected:
+                errors, total, ber, expected_bytes, received_bytes = compare_recordings(
+                    args.expected, args.recording
+                )
+            else:
+                errors, total, ber = compare_phone_recording(args.recording)
         except (OSError, ValueError, common.DemodulationError, common.FramingError) as exc:
             parser.exit(1, f"Could not decode phone recording: {exc}\n")
+        if args.expected:
+            print(f"Expected frame: {expected_bytes} bytes ({args.expected})")
+            print(f"Received frame: {received_bytes} bytes ({args.recording})")
+            if expected_bytes != received_bytes:
+                print(f"Frame lengths differ by {abs(expected_bytes - received_bytes)} bytes.")
+                print(f"Bit differences including missing/extra bits: {errors}; BER: n/a")
+                return 1
         print("| Recording | Bit errors / total bits | BER |")
         print("|---|---:|---:|")
         print(f"| {args.recording} | {errors}/{total} | {ber:.3e} |")

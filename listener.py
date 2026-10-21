@@ -17,6 +17,7 @@ Design (matches the task plan):
 """
 
 import collections
+import re
 import os
 import queue
 import time
@@ -193,7 +194,8 @@ class Listener:
 # --------------------------------------------------------------------------- #
 # Push-to-listen fallback for debugging (fixed-length record, then decode).    #
 # --------------------------------------------------------------------------- #
-def record_and_decode(key: bytes, seconds=15, device=None, save_dir=None):
+def record_and_decode(key: bytes, seconds=15, device=None, save_dir=None,
+                      recording_name=None):
     """Record a fixed window (capped at MAX_RECORD_SECONDS), optionally save it, then decode."""
     import sounddevice as sd
 
@@ -207,7 +209,15 @@ def record_and_decode(key: bytes, seconds=15, device=None, save_dir=None):
     if save_dir:
         from modem import write_wav
         os.makedirs(save_dir, exist_ok=True)
-        path = os.path.join(save_dir, time.strftime("%Y%m%d-%H%M%S.wav"))
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        if recording_name:
+            label = re.sub(r"[^A-Za-z0-9_-]+", "-", recording_name).strip("-_")
+            if not label:
+                raise ValueError("recording name must contain letters or numbers")
+            filename = f"{label}-{stamp}.wav"
+        else:
+            filename = f"{stamp}.wav"
+        path = os.path.join(save_dir, filename)
         write_wav(path, samples)
         print(f"[saved] {path}  (contains room audio; delete after testing)")
 
